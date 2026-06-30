@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Lightweight ADRs for the family backup app.
+Lightweight ADRs for the backup app.
 
 ---
 
@@ -55,7 +55,7 @@ Lightweight ADRs for the family backup app.
 - (+) **Lowest hot storage cost**: Only 3 months at Intelligent-Tiering pricing (~$0.023/GB/month) vs 24 months. For 500 GB, that's ~$1.15/month vs ~$11.50/month.
 - (+) **Dramatic object count reduction**: ~90–99% fewer objects in S3 after bundling, reducing LIST/GET API costs.
 - (+) **Simple cost model**: No lifecycle transition to manage, no early deletion fee math — the Glacier Deep Archive is write-only from the project.
-- (-) **Higher restore frequency**: Data from 4+ months ago requires a Bulk restore (12–48h wait). The wife cannot instantly browse photos from last year.
+- (-) **Higher restore frequency**: Data from 4+ months ago requires a Bulk restore (12–48h wait). Non-technical users cannot instantly browse photos from last year.
 - (-) **UX trade-off**: Clear onboarding messaging and the frontend guard help, but the 12–48h wait for semi-recent photos is the main compromise.
 - (-) **No safety buffer**: If the bundler Lambda fails one month, eligible data sits in `hot/` for another month — but the bundler is idempotent and retries next cycle.
 
@@ -71,8 +71,8 @@ Lightweight ADRs for the family backup app.
 
 **Consequences**:
 - (+) **Cheapest retrieval**: Bulk tier costs $0.0025/GB vs Expedited at $0.03/GB — a 12× cost difference
-- (+) **7 days is generous**: Even if the wife waits until the weekend to download, the files are still available
-- (+) **Good enough for family use**: Photos from 2+ years ago are nostalgic, not urgent — waiting 5–12 hours is acceptable
+- (+) **7 days is generous**: Even if a user waits until the weekend to download, the files are still available
+- (+) **Good enough for personal use**: Photos from 2+ years ago are nostalgic, not urgent — waiting 5–12 hours is acceptable
 - (-) **Bulk can take 5–48 hours**: AWS says "within 48 hours" for Bulk — occasionally it takes the full 2 days
 - (-) **No partial restore**: The entire album (all ZIP parts) must be restored — you can't pick individual photos from within a ZIP without downloading it all
 
@@ -87,7 +87,7 @@ Lightweight ADRs for the family backup app.
 **Decision**: Use ZIP format with automatic splitting into `.partN.zip` files when a month exceeds 10 GB.
 
 **Consequences**:
-- (+) **Universal compatibility**: Every OS can extract ZIP files natively — no software to install for the wife
+- (+) **Universal compatibility**: Every OS can extract ZIP files natively — no software to install for non-technical users
 - (+) **Multi-part is transparent**: Extract `part1.zip` — the OS automatically finds and combines subsequent parts
 - (+) **Go standard library**: `archive/zip` is built-in, no external dependencies
 - (+) **Streaming**: ZIP supports progressive download and extraction
@@ -126,9 +126,9 @@ Lightweight ADRs for the family backup app.
 **Decision**: Merge both views into a single chronological album list, with visual indicators for type (hot vs archive) and multi-part status.
 
 **Consequences**:
-- (+) **Simplicity**: The wife sees one list of albums sorted by date — no need to understand the underlying storage tier
+- (+) **Simplicity**: Non-technical users see one list of albums sorted by date — no need to understand the underlying storage tier
 - (+) **Clear visual cues**: Archive albums show a ZIP icon and "Restore (~48h)" button; hot albums show a folder icon and "Browse" button. Multi-part albums show "(3 parts)".
 - (+) **Natural browsing**: Scrolling chronologically from current month backwards works seamlessly — the transition from hot to archive is invisible
 - (+) **Frontend guard still works**: The `useRestoreSizeGuard` hook checks size regardless of storage tier, so warnings are consistent
 - (-) **More complex Edge Function**: `list-prefixes` must query both prefixes, merge results, and detect multi-part groupings. Slightly more code than two separate endpoints.
-- (-) **Hot/archive distinction can confuse**: If the wife doesn't notice the ZIP icon, she might wonder why some albums take 48 hours. Clear labels mitigate this.
+- (-) **Hot/archive distinction can confuse**: If a non-technical user doesn't notice the ZIP icon, they might wonder why some albums take 48 hours. Clear labels mitigate this.

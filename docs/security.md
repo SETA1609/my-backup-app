@@ -1,6 +1,6 @@
 # Security Overview
 
-Security model for the family backup app. Covers credentials, auth, IAM, encryption, deletion, and incident response.
+Security model for the backup app. Covers credentials, auth, IAM, encryption, deletion, and incident response.
 
 ---
 
@@ -205,7 +205,7 @@ cors_rule {
 | AWS key leaked via Supabase | Low | Critical | Rotation plan (< 5 min). Key has no delete permission. |
 | GitHub token leaked in CI logs | Low | High | Short-lived tokens, OIDC preferred. Revoke immediately. |
 | JWT stolen (XSS) | Low | Medium | Short expiry (1h). No AWS keys in JWT payload. |
-| Wife's session hijacked | Very Low | Medium | Magic links + HTTPS-only. No passwords to leak. |
+| User session hijacked | Very Low | Medium | Magic links + HTTPS-only. No passwords to leak. |
 | S3 bucket deleted | Very Low | Critical | Versioning enabled. Terraform can recreate. |
 | Bundler Lambda corrupts a ZIP | Low | High | Checksum verification before deletion. Safety copy in _bundled/. |
 | Malicious file upload | Low | Low | Uploads go to `hot/` only. No code execution in S3. |

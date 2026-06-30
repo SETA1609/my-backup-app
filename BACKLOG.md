@@ -13,7 +13,7 @@ The fastest path to something working end-to-end. Do these first.
 - [ ] **Create `infra/iam.tf`** — IAM roles for Edge Functions (list/get/put/restore on hot/ + archive/)
 - [ ] **Create `infra/variables.tf`**, `outputs.tf`, `terraform.tfvars.example`
 - [ ] **Run `tofu init && tofu plan`** — verify no errors, no Glacier lifecycle rule on hot/
-- [ ] **Create Supabase project** — enable magic links, invite 2 users (Sebastian + Mariangela)
+- [ ] **Create Supabase project** — enable magic links, invite 2 test users
 - [ ] **Store AWS keys as Supabase Secrets** — AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, BUCKET_NAME
 
 ---

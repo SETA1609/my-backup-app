@@ -109,4 +109,4 @@
 - All UI in `.tsx` files with Tailwind — no raw CSS
 - AWS credentials never reach the browser
 - Least-privilege IAM per component
-- Wife-friendly UX with clear instructions and size warnings
+- Non-technical user-friendly UX with clear instructions and size warnings

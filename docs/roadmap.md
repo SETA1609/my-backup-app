@@ -1,6 +1,6 @@
 # PoC Roadmap
 
-> **Goal**: A working family backup app that Sebastian and Mariangela can actually use.
+> **Goal**: A working backup app that both technical and non-technical users can use.
 > **Total effort**: ~36–40 hours (8–9 evenings or two focused weekends).
 > **Date**: June 2026
 
@@ -10,7 +10,7 @@
 
 🎯 **Phase 1: Infrastructure as Code** — Write Terraform files for S3, IAM, CORS, storage classes. Nothing can be built until we have a bucket.
 
-⬜ Not started &nbsp;|&nbsp; ~2 hours &nbsp;|&nbsp; [`infra/`](../infra/) &nbsp;|&nbsp; Owner: Sebastian
+⬜ Not started &nbsp;|&nbsp; ~2 hours &nbsp;|&nbsp; [`infra/`](../infra/) &nbsp;|&nbsp; Owner: Technical user
 
 ---
 
@@ -50,7 +50,7 @@ gantt
 | 4 | **Restore Flow** — request, status polling, download | ~5.5h | Phase 3 | ⬜ Ready |
 | 5 | **Upload + Go Bundler** — upload flow, bundler Lambda | ~7h | Phase 1 | ⬜ Ready |
 | 6 | **Polish + Deploy** — size guard, CI/CD, notifications | ~5.5h | Phase 4, 5 | ⬜ Ready |
-| 7 | **Validation** — E2E testing, wife feedback, fixes | ~3h | Phase 6 | ⬜ Ready |
+| 7 | **Validation** — E2E testing, non-technical user feedback, fixes | ~3h | Phase 6 | ⬜ Ready |
 
 ---
 
@@ -181,17 +181,17 @@ What's already in place:
 
 ### Phase 7: Validation ✅
 
-**Goal**: Confirm everything works and the wife can use it.
+**Goal**: Confirm everything works and non-technical users can use it.
 
 | Task | Effort | Dependencies |
 |------|--------|-------------|
 | End-to-end test: upload → hot storage → bundler → archive → restore → download | 1.5h | Phase 6 |
 | Test multi-part albums: create 10+ GB month, verify splitting, restore, extract | 1h | Phase 6 |
-| Mariangela tests the app on phone + laptop | 1h | All phases |
+| Non-technical user tests the app on phone + laptop | 1h | All phases |
 | Fix UX issues from feedback | 1–2h | Feedback |
 | Update documentation | 30 min | All phases |
 
-**Success**: Mariangela can log in with a magic link, find photos from last year, tap "Restore", wait a day (or less with Expedited for testing), and download them. She understands the multi-part extraction instructions.
+**Success**: Non-technical users can log in with a magic link, find photos from last year, tap "Restore", wait a day (or less with Expedited for testing), and download them. They understand the multi-part extraction instructions.
 
 ---
 
@@ -219,7 +219,7 @@ Validation + Feedback         ████░░░░░░  3h
 - **M4**: Restore → wait → download works end-to-end → *Phase 4 done*
 - **M5**: Upload → bundler dry-run groups files correctly → *Phase 5 done*
 - **M6**: Auto-deploy from GitHub, frontend guard shows warnings → *Phase 6 done*
-- **M7**: Mariangela can use it without help → *Phase 7 done → PoC complete 🎉*
+- **M7**: Non-technical users can use it without help → *Phase 7 done → PoC complete 🎉*
 
 ---
 
@@ -231,7 +231,7 @@ Validation + Feedback         ████░░░░░░  3h
 - [ ] Phase 4: Restore → poll → download flow (multi-part supported)
 - [ ] Phase 5: Upload flow + Go Bundler Lambda (with splitting)
 - [ ] Phase 6: Frontend size guard + GitHub Pages deploy + notifications
-- [ ] Phase 7: End-to-end tested, wife-approved
+- [ ] Phase 7: End-to-end tested, non-technical user approved
 - [ ] Zero secrets in the repository
 - [ ] All UI in `.tsx` with Tailwind — no raw CSS
 - [ ] Total monthly cost (excl. storage) under $5
