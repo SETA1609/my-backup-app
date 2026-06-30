@@ -31,7 +31,8 @@ All sensitive AWS operations are proxied through **Supabase Edge Functions** (fr
 - Backend cost: **$0** (Supabase free tier easily covers 2 users)
 - Retrieval cost: **~$0–2/month** for up to 100 GB Bulk restores (Deep Archive)
 - Storage: **~$0.00099/GB/month** (~$1/TB/month) — the cheapest AWS offers
-- **Hot storage minimized**: Only 3 months of data in S3 Standard — everything else in Glacier Deep Archive
+- **Hot storage minimized**: Only 3 months of data in Intelligent-Tiering — everything else in Glacier Deep Archive
+- **Zero early deletion fees**: Original files are deleted from Intelligent-Tiering (no minimum duration), never from Glacier. Only bundled ZIPs enter Glacier Deep Archive, well past the 180-day minimum.
 - UX: Simple, big-button interface designed for non-technical use. Albums restore as **ZIP download(s)** — split into reasonable parts, with clear instructions
 - Object count reduction: **~90–99% fewer objects** after bundling, drastically reducing API request costs and metadata overhead
 - Fully automated: EventBridge cron runs the Go Bundler Lambda once per month — zero manual work after initial setup
@@ -269,7 +270,17 @@ With monthly ZIP bundling, the number of objects in Glacier Deep Archive drops b
 - Restore frequency: **Higher** — even 4-month-old photos require a Bulk restore (~12–48h wait)
 - Total cost savings: **~$1–3/year more saved** on hot storage vs the 24-month plan
 
-This is the lowest possible cost on AWS for long-term archival. The main trade-off is that data older than 3 months requires a Bulk restore (12–48 hours) before download.
+**Option B vs lifecycle transition (why this matters for cost)**:
+| Approach | Early Deletion Fee Risk | Hot Storage Cost | Complexity |
+|----------|------------------------|------------------|------------|
+| **Option B (chosen)**: 3 months hot, bundler uploads directly to Glacier | **None** — originals deleted from Intelligent-Tiering, no Glacier min duration | Lowest (only 3 months in Intelligent-Tiering) | Simple — no lifecycle rule needed |
+| Alternative A: 3 months hot, lifecycle transitions to Glacier after 3mo, then bundler deletes from Glacier | **High** — 180-day min means early deletion fee for every file < 180 days old | Lowest | Complex — lifecycle + early fees |
+| Alternative B: 6 months hot, bundle after 6mo | **None** (files well past 180 days) | **3–6× higher** (hot data sits longer) | Simple |
+| Alternative C: No bundling, lifecycle to Glacier after 90 days | **None** (objects stay in Glacier) | Very low | Simple but high object count |
+
+**Option B gives the best of all worlds**: lowest possible hot storage cost, zero early deletion fees, and dramatically reduced object count. The only trade-off is that data 4+ months old requires a 12–48 hour Bulk restore — a UX concern, not a cost concern.
+
+This is the lowest possible cost on AWS for long-term archival with zero early deletion fee risk. The main trade-off is that data older than 3 months requires a Bulk restore (12–48 hours) before download.
 
 ---
 
@@ -373,6 +384,13 @@ for (const part of parts) {
 The bundling window is deliberately short — only 3 months in hot storage. This minimizes hot-tier storage costs and maximizes the cost savings of Glacier Deep Archive. The trade-off is that data from 4–12 months ago requires a Bulk restore (~12–48h wait) if the wife wants to access it. The frontend guard and clear restore-time messaging make this acceptable.
 
 **Key architectural decision (Option B)**: There is **no lifecycle rule** transitioning `hot/` data to Glacier Deep Archive. The `hot/` prefix uses only S3 Intelligent-Tiering, which has **no minimum duration**. When the Go Bundler Lambda runs, it reads files from Intelligent-Tiering, creates ZIP archives, and uploads them **directly to Glacier Deep Archive** with `StorageClass: "DEEP_ARCHIVE"`. The original files are then deleted from Intelligent-Tiering. This avoids the 180-day early deletion fee entirely — since the original files are never transitioned to Glacier, they have no minimum duration penalty. The only objects that ever enter Glacier Deep Archive are the bundled ZIPs, which are intended for long-term archival and will naturally stay well beyond 180 days.
+
+**Why Option B beats the alternatives**:
+- **Vs lifecycle transition (3 months → Glacier)**: If a lifecycle rule moved hot data to Glacier after 90 days, the bundler would delete objects from Glacier that are only 90–180 days old — triggering an early deletion fee for the remaining ~90+ days of the 180-day minimum. Option B avoids this entirely by deleting from Intelligent-Tiering, which has zero minimum.
+- **Vs waiting 6 months to bundle**: With 6 months of hot storage, the bundler can safely delete from Glacier without early fees (files are > 180 days old). But this triples hot storage costs ($0.023/GB vs $0.00099/GB). Option B keeps hot costs at the absolute minimum.
+- **Vs not bundling at all**: Without bundling, you'd have hundreds of thousands of individual Glacier objects, incurring higher LIST/GET API costs and slower restores. Option B gives ~90–99% object count reduction with zero extra cost risk.
+
+**In short**: Option B gives the hot-cost savings of 3-month bundling with the zero-fee safety of 6-month bundling, by ensuring Glacier Deep Archive is *write-only* from the project — objects are created there but never need to be deleted.
 
 ### How the Go Bundler Lambda + EventBridge Cron Works
 
@@ -668,15 +686,16 @@ You can delete via:
 | Cost Type                    | Price (eu-central-1)       | When It Applies                              | Impact for You |
 |------------------------------|----------------------------|----------------------------------------------|----------------|
 | DELETE API request           | **Free**                   | Every delete                                 | No cost |
-| Early Deletion Fee           | Pro-rated storage cost     | Object younger than min. duration            | Main cost to watch |
+| Early Deletion Fee           | Pro-rated storage cost     | Object younger than min. duration (not applicable to this project — see below) | **$0 — avoided by design** |
 | Delete Marker storage        | Same as object storage     | Until marker is cleaned up                   | Use Lifecycle rule |
 | Restored copy (if any)       | Standard storage           | If object was restored before deleting       | Minor (~$0.50 for 100 GB × 7 days) |
 
-**Early Deletion Fees**:
+**Early Deletion Fees (general info — not a concern for this project)**:
 - **Glacier Flexible Retrieval**: Minimum 90 days. If you delete after 40 days → you pay the remaining 50 days at ~$0.0036/GB/month.
 - **Glacier Deep Archive**: Minimum 180 days. Much lower penalty because storage rate is ~3.6× cheaper.
+- **Why it doesn't apply here**: The Go Bundler Lambda deletes original files from Intelligent-Tiering before they ever enter Glacier — Intelligent-Tiering has no minimum duration, so early deletion fees are **zero by design**. The only Glacier objects are bundled ZIPs that stay for years. If you manually delete a ZIP from Glacier via the app within 180 days (e.g. cleaning up a wrong album), a small fee would apply — but this would be rare.
 
-**Bottom line**: Deletion is very cheap unless you frequently delete files that are only a few weeks old. For normal family archive cleanup the cost is negligible.
+**Bottom line**: Deletion costs are essentially **zero** for normal operation. The architecture is designed so that no early deletion fee can be triggered by the automated bundling process.
 
 ### Recommended Implementation in This Project
 
@@ -780,7 +799,7 @@ family-backup-app/
 
 | Phase | Tasks | Estimated Time | Owner |
 |-------|-------|----------------|-------|
-| 1     | Initialize Terraform (`infra/`) + create S3 bucket, IAM, CORS, lifecycle via code | 2 hours | Sebastian |
+| 1     | Initialize Terraform (`infra/`) + create S3 bucket, IAM, CORS, storage config (Intelligent-Tiering for hot/, no Glacier lifecycle rule) via code | 2 hours | Sebastian |
 | 2     | Create Supabase project, enable magic links, store AWS keys as Supabase Secrets | 1.5 hours | Sebastian |
 | 3     | Create Edge Functions skeleton (`request-restore`, `get-download-urls`, `list-prefixes`, `delete-files`) | 2.5 hours | Sebastian |
 | 4     | Build React app (Vite + TS + Tailwind) with magic-link login. All UI in `.tsx` files | 3–4 hours | Sebastian |
@@ -889,7 +908,7 @@ family-backup-app/
 ## 17. Success Criteria for PoC Completion
 
 The PoC is considered successful when:
-- All AWS resources (S3 bucket, IAM, CORS, storage classes) are created via Terraform in `infra/`
+- All AWS resources (S3 bucket, IAM, CORS, storage classes — no Glacier lifecycle transition) are created via Terraform in `infra/`
 - Both users can log in with magic links on phone and laptop
 - Wife can see existing albums (hot = last 3 months, archive = everything older) and request a Bulk restore with one tap
 - She sees clear status and can download files once ready — **single ZIP or multi-part ZIPs with clear instructions**
