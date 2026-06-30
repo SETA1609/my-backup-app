@@ -1,11 +1,11 @@
-# Proof of Concept (PoC): Family Backup App
+# Proof of Concept (PoC): Self-Hosted Backup App
 ## React + GitHub Pages + Supabase + S3 Glacier (Terraform-managed)
 
-**Project Goal**: Build a minimal-cost, secure, wife-friendly web application to browse, restore (Bulk tier), and download photos/documents from Amazon S3 — **Intelligent-Tiering** for the last 3 months (no minimum duration), **Glacier Deep Archive** (the cheapest class) for everything older. The app must be completely free to host and operate within generous free tiers while keeping monthly retrieval costs near zero. Restores take longer (~12–48 hours with Bulk) — this is an accepted trade-off for the lowest possible storage cost.
+**Project Goal**: Build a minimal-cost, secure, easy-to-use web application to browse, restore (Bulk tier), and download photos/documents from Amazon S3 — **Intelligent-Tiering** for the last 3 months (no minimum duration), **Glacier Deep Archive** (the cheapest class) for everything older. The app must be completely free to host and operate within generous free tiers while keeping monthly retrieval costs near zero. Restores take longer (~12–48 hours with Bulk) — this is an accepted trade-off for the lowest possible storage cost.
 
 **Date**: June 2026  
 **Status**: PoC Planning / Ready to implement  
-**Target Users**: Sebastian (technical) + Mariangela (non-technical)
+**Target Users**: Technical users who want full control + non-technical users who just want a simple interface
 
 **Key Principles**:
 - Everything is defined in code (Infrastructure as Code + components in TSX)
@@ -105,10 +105,10 @@ All sensitive AWS operations are proxied through **Supabase Edge Functions** (fr
 ```
 
 **Data Flow Highlights**:
-1. Wife clicks magic link → instantly logged in via Supabase Auth
+1. User clicks magic link → instantly logged in via Supabase Auth
 2. App calls Edge Function `list-prefixes` → merges `hot/` folders + `archive/` monthly ZIPs (including multi-part) into a unified album view
 3. Before restoring, frontend guard checks estimated size vs 100 GB monthly free egress → shows warning if approaching limit
-4. She clicks **"Restore March 2026 Photos (Free, ~48 hours)"**
+4. They click **"Restore March 2026 Photos (Free, ~48 hours)"**
 5. For archive data: Edge Function calls `s3.restoreObject({ Tier: "Bulk" })` on **each part** of the album
 6. App polls `get-download-urls` every 30–60s until all parts show `ongoing-request="false"`
 7. Presigned `GET` URLs are returned for each part — user downloads **one part at a time** or all at once
@@ -208,7 +208,7 @@ GitHub Pages is truly free with zero limits for this use case. We keep the backe
 - Background upload progress + resumable uploads
 - Email notification when restore completes (via SNS + Edge Function)
 - Client-side encryption option (rclone crypt or Web Crypto)
-- Dark mode + very large touch-friendly buttons for wife
+- Dark mode + very large touch-friendly buttons
 - Simple settings page (restore days, default tier, max part size config)
 
 ---
@@ -286,8 +286,8 @@ This is the lowest possible cost on AWS for long-term archival with zero early d
 
 ## 7. Recommended S3 Bucket Configuration (Cheapest Path)
 
-- **Region**: `eu-central-1` (Frankfurt) — lowest latency from Hamburg + GDPR friendly
-- **Bucket name**: `family-backup-sebastian-2026` (or similar)
+- **Region**: `eu-central-1` (Frankfurt) — GDPR friendly, low latency for European users
+- **Bucket name**: `my-backup-<yourname>-<year>` (e.g. `my-backup-john-2026`)
 - **Prefix strategy**:
   - `photos/hot/YYYY/MM/` — Recent data (last 3 months). Files stored individually for easy browsing and selective restore. Default upload target. The Go Bundler Lambda scans this prefix.
   - `photos/archive/YYYY/` — Bundled monthly ZIPs for data older than 3 months. Single ZIP or multi-part: `2024-03-March.part1.zip`, `2024-03-March.part2.zip`, etc.
@@ -381,7 +381,7 @@ for (const part of parts) {
 | Last 3 months           | `photos/hot/YYYY/MM/` | Individual files                | No       |
 | Older than 3 months     | `photos/archive/YYYY/`| Monthly ZIP(s), possibly split | Yes      |
 
-The bundling window is deliberately short — only 3 months in hot storage. This minimizes hot-tier storage costs and maximizes the cost savings of Glacier Deep Archive. The trade-off is that data from 4–12 months ago requires a Bulk restore (~12–48h wait) if the wife wants to access it. The frontend guard and clear restore-time messaging make this acceptable.
+The bundling window is deliberately short — only 3 months in hot storage. This minimizes hot-tier storage costs and maximizes the cost savings of Glacier Deep Archive. The trade-off is that data from 4–12 months ago requires a Bulk restore (~12–48h wait) if a household member wants to access it. The frontend guard and clear restore-time messaging make this acceptable.
 
 **Key architectural decision (Option B)**: There is **no lifecycle rule** transitioning `hot/` data to Glacier Deep Archive. The `hot/` prefix uses only S3 Intelligent-Tiering, which has **no minimum duration**. When the Go Bundler Lambda runs, it reads files from Intelligent-Tiering, creates ZIP archives, and uploads them **directly to Glacier Deep Archive** with `StorageClass: "DEEP_ARCHIVE"`. The original files are then deleted from Intelligent-Tiering. This avoids the 180-day early deletion fee entirely — since the original files are never transitioned to Glacier, they have no minimum duration penalty. The only objects that ever enter Glacier Deep Archive are the bundled ZIPs, which are intended for long-term archival and will naturally stay well beyond 180 days.
 
@@ -436,7 +436,7 @@ Defined in `infra/bundler.tf`:
 ### Recommended Format: ZIP (Not tar.zst or 7z)
 
 - **Universally supported**: Every OS (Windows, macOS, Linux, Android, iOS) can open ZIP natively or with built-in tools
-- **No additional software required** for the wife to extract files
+- **No additional software required** to extract files
 - **Streaming support**: ZIP allows progressive download and extraction
 - **Go standard library**: `archive/zip` is built-in, no external dependencies
 - **Familiar UX**: Everyone knows what a ZIP file is
@@ -470,7 +470,7 @@ function useRestoreSizeGuard(albumTotalSizeBytes: number) {
 - **< 10%**: No warning, proceed normally
 - **10–80%**: Yellow banner above the Restore button: *"This album is 25 GB. That's 25% of your monthly free download limit."*
 - **> 80%**: Red banner + confirmation dialog: *"This restore is 95 GB (95% of your monthly limit). You will have very little free egress left this month. Are you sure?"*
-- **> 100%**: Restore button disabled with explanation: *"This album exceeds the 100 GB monthly free limit. Contact Sebastian to plan a staggered restore."*
+- **> 100%**: Restore button disabled with explanation: *"This album exceeds the 100 GB monthly free limit. Contact your technical user to plan a staggered restore."*
 - The guard stores a running total of this month's already-restored size in localStorage so cumulative usage is tracked across sessions.
 
 ### How the React App Should Present Bundled vs Non-Bundled Albums
@@ -548,7 +548,7 @@ This ensures no data loss: ALL ZIP checksums must match before any deletion occu
 ## 10. Notifications & Email Alerts (Go Lambda + Amazon SES Templates)
 
 ### Why We Chose This Approach
-After a Bulk restore from Glacier Deep Archive finishes (~12–48 hours), we want to notify you and your wife with **one clean, branded HTML email per album** (not one email per individual file or per part). We also want nice buttons, consistent styling, and grouping logic.
+After a Bulk restore from Glacier Deep Archive finishes (~12–48 hours), we want to notify household members with **one clean, branded HTML email per album** (not one email per individual file or per part). We also want nice buttons, consistent styling, and grouping logic.
 
 **Chosen architecture** (minimal cost, fully as code):
 ```
@@ -560,7 +560,7 @@ Go Lambda (triggered by SNS, groups files by common prefix/album)
         ↓
 Amazon SES SendTemplatedEmail (using pre-defined HTML template)
         ↓
-HTML email to you + Mariangela
+HTML email to household members
 ```
 
 This keeps everything cheap, maintainable, and gives a much better experience than plain SNS emails.
@@ -582,7 +582,7 @@ The Go Lambda is intentionally small and focused:
 **Why Go?**
 - Fast cold starts
 - Small deployment package
-- You are comfortable with it
+- Developers are comfortable with Go
 - Excellent AWS SDK v2 support
 
 The Lambda source lives in `lambda/go-notification/` directory.
@@ -624,7 +624,7 @@ If you have any problems or need help, just reply to this email.
 - Simple, non-technical language
 - Offer of help
 
-**Do NOT put raw S3 presigned download links directly in the email**:
+**Do NOT put raw S3 presigned download links directly in the email** (better UX and security to open the authenticated app):
 - They are long and ugly
 - They expire (we generate fresh ones inside the app)
 - For multi-part albums it becomes overwhelming
@@ -645,12 +645,12 @@ When the user clicks the link in the email and opens the app:
 5. For single-part albums: shows the same single-download flow as before
 6. Optional nice-to-have: A small "Recently Restored" section in the sidebar showing completed restores from the last few days
 
-This flow is **significantly better** for your wife than sending direct download links via email.
+This flow is **significantly better** for non-technical users than sending direct download links via email.
 
 ### What Goes into Terraform (`infra/`)
 Add these resources (recommended in `infra/notifications.tf`):
 
-- `aws_sns_topic` + `aws_sns_topic_subscription` (email for you + wife)
+- `aws_sns_topic` + `aws_sns_topic_subscription` (email for household members)
 - `aws_s3_bucket_notification` filtered to `ObjectRestore:Completed` (with optional prefix filter)
 - `aws_lambda_function` (Go runtime, from `lambda/go-notification/`)
 - `aws_iam_role` + policy for Lambda (minimal: `sns:Receive`, `ses:SendTemplatedEmail`, logs)
@@ -719,14 +719,14 @@ You can delete via:
    - Warning shown for recent files: *"This file is only X days old. Early deletion fee may apply."*
    - Distinct warning for archive ZIPs: *"This will delete all photos from March 2026 permanently."*
    - Multi-part warning: *"This will delete all 3 parts of March 2026."*
-   - Advanced option (for you): "Permanently delete this specific version"
+   - Advanced option: "Permanently delete this specific version"
    - Success toast + refresh of the album view
 
 **4. IAM Policy Update (Terraform)**
    - Add minimal `s3:DeleteObject` and `s3:DeleteObjectVersion` permissions scoped to your allowed prefixes only.
    - Never grant broad delete rights.
 
-This approach keeps deletion **secure, auditable, cheap, and fully controlled** from the same wife-friendly interface.
+This approach keeps deletion **secure, auditable, cheap, and fully controlled** from a user-friendly interface.
 
 ---
 
@@ -801,21 +801,21 @@ family-backup-app/
 
 | Phase | Tasks | Estimated Time | Owner |
 |-------|-------|----------------|-------|
-| 1     | Initialize Terraform (`infra/`) + create S3 bucket, IAM, CORS, storage config (Intelligent-Tiering for hot/, no Glacier lifecycle rule) via code | 2 hours | Sebastian |
-| 2     | Create Supabase project, enable magic links, store AWS keys as Supabase Secrets | 1.5 hours | Sebastian |
-| 3     | Create Edge Functions skeleton (`request-restore`, `get-download-urls`, `list-prefixes`, `delete-files`) | 2.5 hours | Sebastian |
-| 4     | Build React app (Vite + TS + Tailwind) with magic-link login. All UI in `.tsx` files | 3–4 hours | Sebastian |
-| 5     | Implement `list-prefixes` Edge Function (merged hot + archive view, multi-part detection) + album browser UI | 3 hours | Sebastian |
-| 6     | Implement `request-restore` (multi-part support) + status polling + UI | 3 hours | Sebastian |
-| 7     | Implement `get-download-urls` + download buttons (per-part + Download All) | 2.5 hours | Sebastian |
-| 8     | Basic upload flow (presigned URLs to `hot/` prefix) | 2 hours | Sebastian |
-| 9     | Build Go Bundler Lambda (`lambda/go-bundler/`) — scan, group, ZIP with splitting, upload, verify, safe delete | 5 hours | Sebastian |
-| 10    | Create EventBridge Scheduler rule + bundler IAM role in Terraform (`infra/bundler.tf`) | 1 hour | Sebastian |
-| 11    | Build frontend size guard (`useRestoreSizeGuard` + `SizeGuardBanner`) + multi-part UI (`PartList`) | 3 hours | Sebastian |
-| 12    | GitHub Actions workflow for deploy to GitHub Pages | 1 hour | Sebastian |
-| 13    | Basic SNS → plain text email notification (quick win) | 1.5 hours | Sebastian |
-| 14    | Go Lambda + SES Email Template for grouped HTML emails (Phase 2) | 3 hours | Sebastian |
-| 15    | End-to-end testing + wife UX feedback + documentation | 3 hours | Both |
+| 1     | Initialize Terraform (`infra/`) + create S3 bucket, IAM, CORS, storage config (Intelligent-Tiering for hot/, no Glacier lifecycle rule) via code | 2 hours | Technical user |
+| 2     | Create Supabase project, enable magic links, store AWS keys as Supabase Secrets | 1.5 hours | Technical user |
+| 3     | Create Edge Functions skeleton (`request-restore`, `get-download-urls`, `list-prefixes`, `delete-files`) | 2.5 hours | Technical user |
+| 4     | Build React app (Vite + TS + Tailwind) with magic-link login. All UI in `.tsx` files | 3–4 hours | Technical user |
+| 5     | Implement `list-prefixes` Edge Function (merged hot + archive view, multi-part detection) + album browser UI | 3 hours | Technical user |
+| 6     | Implement `request-restore` (multi-part support) + status polling + UI | 3 hours | Technical user |
+| 7     | Implement `get-download-urls` + download buttons (per-part + Download All) | 2.5 hours | Technical user |
+| 8     | Basic upload flow (presigned URLs to `hot/` prefix) | 2 hours | Technical user |
+| 9     | Build Go Bundler Lambda (`lambda/go-bundler/`) — scan, group, ZIP with splitting, upload, verify, safe delete | 5 hours | Technical user |
+| 10    | Create EventBridge Scheduler rule + bundler IAM role in Terraform (`infra/bundler.tf`) | 1 hour | Technical user |
+| 11    | Build frontend size guard (`useRestoreSizeGuard` + `SizeGuardBanner`) + multi-part UI (`PartList`) | 3 hours | Technical user |
+| 12    | GitHub Actions workflow for deploy to GitHub Pages | 1 hour | Technical user |
+| 13    | Basic SNS → plain text email notification (quick win) | 1.5 hours | Technical user |
+| 14    | Go Lambda + SES Email Template for grouped HTML emails (Phase 2) | 3 hours | Technical user |
+| 15    | End-to-end testing + non-technical UX feedback + documentation | 3 hours | Both
 
 **Total PoC effort**: ~36–40 focused hours (can be done over 8–9 evenings or two focused weekends). The extra time includes the splitting logic, frontend guard, and multi-part download UI.
 
@@ -826,10 +826,10 @@ family-backup-app/
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|----------|
 | Restore takes longer than expected | Medium | Medium | Show clear "usually 5–12h" messaging + progress estimate |
-| Wife is frustrated that recent photos (4–6 months old) require 12–48h wait | Medium | High | Explain trade-off clearly in onboarding: "Photos older than 3 months are in cold storage and take ~1 day to restore". Offer to keep select albums hot on request. |
-| Wife finds UI confusing | Low | High | Big buttons, clear status language, test with her early; multi-part instructions tested separately |
-| Wife doesn't understand multi-part extraction | Low | High | Clear instruction: "Download all parts, then extract part1.zip"; can add a short video/gif later |
-| Frontend size guard incorrectly estimates | Low | Medium | Use exact size from S3 metadata; add manual override for Sebastian |
+| Non-technical user is frustrated that recent photos (4–6 months old) require 12–48h wait | Medium | High | Explain trade-off clearly in onboarding: "Photos older than 3 months are in cold storage and take ~1 day to restore". Offer to keep select albums hot on request. |
+| Non-technical user finds UI confusing | Low | High | Big buttons, clear status language, test with them early; multi-part instructions tested separately |
+| Non-technical user doesn't understand multi-part extraction | Low | High | Clear instruction: "Download all parts, then extract part1.zip"; can add a short video/gif later |
+| Frontend size guard incorrectly estimates | Low | Medium | Use exact size from S3 metadata; add manual override for the technical user |
 | GitHub Pages + Supabase CORS issues | Low | Medium | Document exact CORS config + test localhost vs prod |
 | Supabase free tier limits hit | Very Low | Low | 500k Edge invocations + 50k MAU — we will be at <1% |
 | Bundler Lambda corrupts a ZIP | Low | High | Verify checksum before deleting originals; safety copy in `_bundled/` for 30 days |
@@ -920,8 +920,8 @@ family-backup-app/
 The PoC is considered successful when:
 - All AWS resources (S3 bucket, IAM, CORS, storage classes — no Glacier lifecycle transition) are created via Terraform in `infra/`
 - Both users can log in with magic links on phone and laptop
-- Wife can see existing albums (hot = last 3 months, archive = everything older) and request a Bulk restore with one tap
-- She sees clear status and can download files once ready — **single ZIP or multi-part ZIPs with clear instructions**
+- Non-technical users can see existing albums (hot = last 3 months, archive = everything older) and request a Bulk restore with one tap
+- They see clear status and can download files once ready — **single ZIP or multi-part ZIPs with clear instructions**
 - Multi-part albums display part count, individual download buttons, and extraction guidance
 - The frontend size guard shows appropriate warnings before restore based on album size vs 100 GB monthly limit
 - A new photo uploaded via the app appears in `hot/` and is automatically bundled into archive after 3 months
@@ -945,4 +945,4 @@ The PoC is considered successful when:
 6. GitHub Actions workflow for Pages deploy
 7. Full S3 + IAM policy + CORS configuration (as Terraform + manual checklist)
 
-This architecture keeps the entire project (infrastructure + application) fully defined in code, secure, and extremely low-cost while giving your wife a genuinely simple experience.
+This architecture keeps the entire project (infrastructure + application) fully defined in code, secure, and extremely low-cost while giving non-technical users a genuinely simple experience.
