@@ -392,6 +392,8 @@ The bundling window is deliberately short — only 3 months in hot storage. This
 
 **In short**: Option B gives the hot-cost savings of 3-month bundling with the zero-fee safety of 6-month bundling, by ensuring Glacier Deep Archive is *write-only* from the project — objects are created there but never need to be deleted.
 
+> **Note**: The bundling window was reduced from 24 months to 3 months during planning (Option B). This was driven by two factors: (1) minimizing hot storage costs, and (2) avoiding early deletion fees by deleting originals from Intelligent-Tiering (no minimum duration) instead of transitioning them to Glacier. The trade-off is that photos 4+ months old now require a Bulk restore (~12–48h wait). See `docs/decisions.md` §3 for the full rationale.
+
 ### How the Go Bundler Lambda + EventBridge Cron Works
 
 **Trigger**: EventBridge Scheduler rule with cron expression `cron(0 3 1 * ? *)` — runs on the 1st of each month at 3:00 AM UTC. This is well inside the AWS free tier (14 free schedules).
@@ -839,7 +841,15 @@ family-backup-app/
 
 ---
 
-## 15. Open Decisions / Future Enhancements
+## 15. Changelog & Open Decisions
+
+### Recent Changes
+
+| Date | Change | Rationale |
+|------|--------|-----------|
+| 2026-06 | Bundling window reduced from **24 months → 3 months** (Option B) | Minimize hot storage costs + eliminate early deletion fees by deleting from Intelligent-Tiering instead of transitioning to Glacier |
+
+### Open Decisions / Future Enhancements
 
 - Client-side encryption (rclone crypt overlay) vs trusting S3 + Edge Function proxy?
 - Do we want to support selecting multiple albums for restore in one go?
