@@ -1,0 +1,45 @@
+# --- Terraform ---
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+.terraform/
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# --- Go ---
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/target
+/go/bin
+lambda/**/bin/
+lambda/**/vendor/
+
+# --- Node / TypeScript ---
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.next/
+.env
+.env.local
+.env.*.local
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# --- Supabase ---
+supabase/.temp/

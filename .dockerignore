@@ -1,0 +1,8 @@
+node_modules
+.git
+*.tfstate
+terraform.tfvars
+.terraform/
+infra/
+lambda/
+.env
