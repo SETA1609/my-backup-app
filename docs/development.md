@@ -1,6 +1,6 @@
 # Development Guide
 
-How to set up, run, and deploy the family backup app.
+How to set up, run, and deploy the backup app.
 
 ---
 
@@ -174,7 +174,7 @@ Functions are served at `http://localhost:54321/functions/v1/`.
 AWS_ACCESS_KEY_ID=your-key
 AWS_SECRET_ACCESS_KEY=your-secret
 AWS_REGION=eu-central-1
-BUCKET_NAME=family-backup-sebastian-2026
+BUCKET_NAME=your-backup-bucket
 ```
 
 ### Deploy Edge Functions
@@ -199,7 +199,7 @@ supabase secrets set --project-ref your-project-ref \
   AWS_ACCESS_KEY_ID=your-key \
   AWS_SECRET_ACCESS_KEY=your-secret \
   AWS_REGION=eu-central-1 \
-  BUCKET_NAME=family-backup-sebastian-2026
+  BUCKET_NAME=your-backup-bucket
 ```
 
 ### Enable Magic Link Auth
@@ -286,7 +286,7 @@ echo "test file 2" > /tmp/test-hot/2026/02/photo2.jpg
 go run main.go -source /tmp/test-hot -dry-run
 
 # Or test with an actual S3 bucket (needs AWS credentials)
-AWS_PROFILE=my-backup go run main.go -bucket family-backup-sebastian-2026
+AWS_PROFILE=my-backup go run main.go -bucket your-backup-bucket
 ```
 
 ### Deploying the Bundler
@@ -360,7 +360,7 @@ Before restoring, the app warns if:
 - **< 10%** of monthly limit: No warning
 - **10–80%**: Yellow banner — "This album is 25 GB (25% of your monthly free limit)"
 - **> 80%**: Red banner + confirmation dialog
-- **> 100%**: Restore button disabled — "Contact Sebastian to plan a staggered restore"
+- **> 100%**: Restore button disabled — "Contact the technical user to plan a staggered restore"
 
 A running total of restored size this month is stored in `localStorage`.
 
