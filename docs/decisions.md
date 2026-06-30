@@ -42,20 +42,22 @@ Lightweight ADRs for the family backup app.
 
 ---
 
-## 3. 24 Months of Hot Storage Before Bundling
+## 3. 3 Months of Hot Storage Before Bundling (Option B)
 
 **Date**: 2026-06
 
-**Context**: Data in `photos/hot/` is stored as individual files in S3 Intelligent-Tiering — fast to browse, restore, and download without waiting for Glacier Bulk restoration. We needed to decide how long data stays here before the Go Bundler Lambda archives it into monthly ZIPs in Glacier Deep Archive.
+**Context**: Data in `photos/hot/` is stored as individual files in S3 Intelligent-Tiering — fast to browse, restore, and download without waiting for Glacier Bulk restoration. We needed to decide how long data stays here before the Go Bundler Lambda archives it into monthly ZIPs in Glacier Deep Archive. The key constraint: we must avoid early deletion fees (Glacier Deep Archive has a 180-day minimum).
 
-**Decision**: Keep data in `photos/hot/` for 24 months before bundling.
+**Decision**: Keep data in `photos/hot/` for only 3 months. The bundler uploads ZIPs **directly** to Glacier Deep Archive with `StorageClass: "DEEP_ARCHIVE"`, then deletes the original files from Intelligent-Tiering (which has no minimum duration). There is **no lifecycle rule** transitioning `hot/` objects to Glacier — this is the core of Option B.
 
 **Consequences**:
-- (+) **Wife-friendly**: Most family photos are accessed within the first 1–2 years. 24 months of instant-access data means 90%+ of restores never hit Glacier delays.
-- (+) **No early deletion fee risk**: After 24 months in Intelligent-Tiering, the bundler is not time-critical. If the Lambda fails one month, there are plenty of previous months ready to bundle.
-- (+) **Simple mental model**: "Everything from the last 2 years is instant — everything older takes a day."
-- (-) **Higher hot storage cost**: 24 months at ~$0.023/GB/month vs $0.00099/GB/month for Glacier — roughly 23× more expensive for the hot portion. For 500 GB of active data, that's ~$11.50/month vs ~$0.50/month.
-- (-) **More API requests**: Individual files accumulate over 24 months, increasing LIST/GET request costs vs bundling sooner.
+- (+) **Zero early deletion fees**: Original files are deleted from Intelligent-Tiering (no minimum), never from Glacier. Only bundled ZIPs enter Glacier — and they stay for years, well past the 180-day minimum.
+- (+) **Lowest hot storage cost**: Only 3 months at Intelligent-Tiering pricing (~$0.023/GB/month) vs 24 months. For 500 GB, that's ~$1.15/month vs ~$11.50/month.
+- (+) **Dramatic object count reduction**: ~90–99% fewer objects in S3 after bundling, reducing LIST/GET API costs.
+- (+) **Simple cost model**: No lifecycle transition to manage, no early deletion fee math — the Glacier Deep Archive is write-only from the project.
+- (-) **Higher restore frequency**: Data from 4+ months ago requires a Bulk restore (12–48h wait). The wife cannot instantly browse photos from last year.
+- (-) **UX trade-off**: Clear onboarding messaging and the frontend guard help, but the 12–48h wait for semi-recent photos is the main compromise.
+- (-) **No safety buffer**: If the bundler Lambda fails one month, eligible data sits in `hot/` for another month — but the bundler is idempotent and retries next cycle.
 
 ---
 
