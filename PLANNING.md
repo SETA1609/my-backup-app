@@ -554,7 +554,7 @@ After a Bulk restore from Glacier Deep Archive finishes (~12–48 hours), we wan
 ```
 S3 (ObjectRestore:Completed event)
         ↓
-SNS Topic (family-backup-restore-notifications)
+SNS Topic (backup-restore-notifications)
         ↓
 Go Lambda (triggered by SNS, groups files by common prefix/album)
         ↓
@@ -567,7 +567,7 @@ This keeps everything cheap, maintainable, and gives a much better experience th
 
 ### Cost (Still Practically $0)
 - **Lambda**: AWS Lambda free tier (1M requests + 400,000 GB-seconds/month) → we will be at <0.1% usage.
-- **SES**: $0.10 per 1,000 emails after free tier. With normal family use you stay well inside free limits.
+- **SES**: $0.10 per 1,000 emails after free tier. With normal personal use you stay well inside free limits.
 - **SNS**: Negligible.
 - **Total expected yearly cost**: **<$0.50** even with moderate usage.
 
@@ -605,7 +605,7 @@ Good news! The restore of "March 2026 Photos" has finished.
 
 This album has 3 parts. Open the Family Backup App to download each part:
 
-→ Open App & Download: https://yourusername.github.io/family-backup-app/?restored=photos/archive/2026/2026-03-March
+→ Open App & Download: https://yourusername.github.io/my-backup-app/?restored=photos/archive/2026/2026-03-March
 
 Download all parts and extract the first one — your computer will combine them automatically.
 
@@ -733,7 +733,7 @@ This approach keeps deletion **secure, auditable, cheap, and fully controlled** 
 ## 12. Project Folder Structure (Everything in Code)
 
 ```
-family-backup-app/
+my-backup-app/
 ├── infra/                            # Terraform Infrastructure as Code
 │   ├── main.tf                       # S3 bucket, lifecycle, CORS, encryption
 │   ├── bundler.tf                    # Go Bundler Lambda + EventBridge Scheduler
@@ -868,7 +868,7 @@ family-backup-app/
 
 1. **Create the project skeleton + infra/**
    ```bash
-   mkdir family-backup-app && cd family-backup-app
+    mkdir my-backup-app && cd my-backup-app
    npm create vite@latest . -- --template react-ts
    mkdir -p infra supabase/functions lambda/go-bundler lambda/go-notification
    ```
@@ -881,7 +881,7 @@ family-backup-app/
 3. **Create Supabase project**
    ```bash
    npx supabase login
-   npx supabase projects create family-backup
+   npx supabase projects create my-backup
    ```
    - Enable Email Magic Links in Auth settings
    - Add your AWS access key + secret as Supabase Secrets (Settings → Edge Functions → Secrets)
@@ -904,7 +904,7 @@ family-backup-app/
 7. **Build the Go Bundler Lambda**
    ```bash
    cd lambda/go-bundler
-   go mod init github.com/yourname/family-backup-app/lambda/go-bundler
+   go mod init github.com/yourname/my-backup-app/lambda/go-bundler
    go get github.com/aws/aws-sdk-go-v2/service/s3
    # Implement: scan hot/ → group by YYYY-MM → ZIP (with splitting) → upload to archive/ → verify → delete originals
    # Build: GOOS=linux GOARCH=amd64 go build -o bootstrap main.go
@@ -919,7 +919,7 @@ family-backup-app/
 
 The PoC is considered successful when:
 - All AWS resources (S3 bucket, IAM, CORS, storage classes — no Glacier lifecycle transition) are created via Terraform in `infra/`
-- Both users can log in with magic links on phone and laptop
+- Users can log in with magic links on phone and laptop
 - Non-technical users can see existing albums (hot = last 3 months, archive = everything older) and request a Bulk restore with one tap
 - They see clear status and can download files once ready — **single ZIP or multi-part ZIPs with clear instructions**
 - Multi-part albums display part count, individual download buttons, and extraction guidance

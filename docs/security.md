@@ -65,8 +65,8 @@ User → Magic Link Email → Supabase Auth → JWT → Edge Function
     "s3:RestoreObject"
   ],
   "Resource": [
-    "arn:aws:s3:::family-backup-bucket",
-    "arn:aws:s3:::family-backup-bucket/photos/*"
+    "arn:aws:s3:::my-backup-bucket",
+    "arn:aws:s3:::my-backup-bucket/photos/*"
   ]
 }
 ```
@@ -81,22 +81,22 @@ User → Magic Link Email → Supabase Auth → JWT → Edge Function
 {
   "Effect": "Allow",
   "Action": ["s3:ListBucket"],
-  "Resource": ["arn:aws:s3:::family-backup-bucket"]
+  "Resource": ["arn:aws:s3:::my-backup-bucket"]
 },
 {
   "Effect": "Allow",
   "Action": ["s3:GetObject"],
-  "Resource": ["arn:aws:s3:::family-backup-bucket/photos/hot/*"]
+  "Resource": ["arn:aws:s3:::my-backup-bucket/photos/hot/*"]
 },
 {
   "Effect": "Allow",
   "Action": ["s3:PutObject"],
-  "Resource": ["arn:aws:s3:::family-backup-bucket/photos/archive/*"]
+  "Resource": ["arn:aws:s3:::my-backup-bucket/photos/archive/*"]
 },
 {
   "Effect": "Allow",
   "Action": ["s3:DeleteObject"],
-  "Resource": ["arn:aws:s3:::family-backup-bucket/photos/hot/*"]
+  "Resource": ["arn:aws:s3:::my-backup-bucket/photos/hot/*"]
 }
 ```
 
