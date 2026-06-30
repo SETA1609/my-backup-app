@@ -36,7 +36,8 @@
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
 │         AWS S3 + IAM (eu-central-1) — Terraform managed     │
-│  • Bucket with Glacier Deep Archive lifecycle               │
+│  • Hot data in Intelligent-Tiering → bundler uploads ZIPs   │
+│  •   directly to Glacier Deep Archive (no lifecycle rule)    │
 │  • Prefix strategy: photos/hot/  +  photos/archive/YYYY/    │
 │  • Versioning + SSE-KMS encryption                          │
 │  • Public access blocked                                    │
@@ -50,7 +51,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │   Go Bundler Lambda (EventBridge Scheduler cron)            │
 │  • Trigger: cron(0 3 1 * ? *) — 1st of each month at 3 AM  │
-│  • Scans photos/hot/ for data older than 24 months          │
+│  • Scans photos/hot/ for data older than 3 months           │
 │  • Groups by YYYY-MM, creates monthly ZIP archives          │
 │  • Auto-splits: if ZIP > MAX_PART_SIZE (10 GB default),     │
 │    splits into name.part1.zip, name.part2.zip, ...          │
@@ -72,8 +73,8 @@
 7. Presigned `GET` URLs returned per part — download one at a time or all at once
 8. Multi-part albums show: *"This album has 3 parts. Download all parts and unzip the first one."*
 9. Hot data: individual files restored and downloaded selectively
-10. Uploads → presigned POST to `photos/hot/` → lifecycle transitions to Glacier Deep Archive
-11. Go Bundler Lambda runs monthly via EventBridge cron, bundling old data into ZIPs with automatic splitting
+10. Uploads → presigned POST to `photos/hot/` → Intelligent-Tiering (no Glacier transition). Bundler later archives to Glacier Deep Archive directly.
+11. Go Bundler Lambda runs monthly via EventBridge cron, bundling data older than 3 months into ZIPs with automatic splitting
 
 ## Tech Stack
 
@@ -97,7 +98,7 @@
 
 | Prefix                  | Purpose                                    |
 |-------------------------|--------------------------------------------|
-| `photos/hot/YYYY/`      | Recent data (current + previous year), individual files |
+| `photos/hot/YYYY/MM/`  | Recent data (last 3 months), individual files |
 | `photos/archive/YYYY/`  | Bundled monthly ZIPs, possibly split into `.partN.zip` |
 | `photos/_bundled/`      | Temporary safety copy after bundling (30-day lifecycle) |
 

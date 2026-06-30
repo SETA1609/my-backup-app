@@ -1,7 +1,7 @@
 # Proof of Concept (PoC): Family Backup App
 ## React + GitHub Pages + Supabase + S3 Glacier (Terraform-managed)
 
-**Project Goal**: Build a minimal-cost, secure, wife-friendly web application to browse, restore (Bulk tier), and download photos/documents from Amazon S3 **Glacier Deep Archive** (the cheapest storage class). The app must be completely free to host and operate within generous free tiers while keeping monthly retrieval costs near zero. Restores take longer (~12–48 hours with Bulk) — this is an accepted trade-off for the lowest possible storage cost.
+**Project Goal**: Build a minimal-cost, secure, wife-friendly web application to browse, restore (Bulk tier), and download photos/documents from Amazon S3 — **Intelligent-Tiering** for the last 3 months (no minimum duration), **Glacier Deep Archive** (the cheapest class) for everything older. The app must be completely free to host and operate within generous free tiers while keeping monthly retrieval costs near zero. Restores take longer (~12–48 hours with Bulk) — this is an accepted trade-off for the lowest possible storage cost.
 
 **Date**: June 2026  
 **Status**: PoC Planning / Ready to implement  
@@ -24,14 +24,15 @@ All sensitive AWS operations are proxied through **Supabase Edge Functions** (fr
 - Supabase Auth (magic links) provides simple, passwordless login for both users
 - The app works on any modern browser (phone, tablet, laptop)
 
-**Hybrid Data Lifecycle**: Recent data (current year + previous year) stays as individual files in a `hot/` prefix for easy browsing and selective restore. Older data is **automatically bundled** by a **Go Lambda** triggered by **EventBridge Scheduler** (cron) into **monthly ZIP archives** stored in an `archive/` prefix. If a month's data exceeds a configurable part size (recommended 10 GB), the Lambda **auto-splits** it into numbered parts (`.part1.zip`, `.part2.zip`, etc.). A **frontend guard** in the React app warns before restoring if the album would consume a large portion of the 100 GB monthly free egress limit. No manual intervention needed once deployed.
+**Hybrid Data Lifecycle**: Only the last 3 months of data stay as individual files in a `hot/` prefix for quick browsing and selective restore. Everything older is **automatically bundled** by a **Go Lambda** triggered by **EventBridge Scheduler** (cron) into **monthly ZIP archives** stored in an `archive/` prefix. If a month's data exceeds a configurable part size (recommended 10 GB), the Lambda **auto-splits** it into numbered parts (`.part1.zip`, `.part2.zip`, etc.). A **frontend guard** in the React app warns before restoring if the album would consume a large portion of the 100 GB monthly free egress limit. No manual intervention needed once deployed.
 
 **Key Wins**:
 - Hosting cost: **$0**
 - Backend cost: **$0** (Supabase free tier easily covers 2 users)
 - Retrieval cost: **~$0–2/month** for up to 100 GB Bulk restores (Deep Archive)
 - Storage: **~$0.00099/GB/month** (~$1/TB/month) — the cheapest AWS offers
-- UX: Simple, big-button interface designed for non-technical use. Old albums restore as **ZIP download(s)** — split into reasonable parts, with clear instructions
+- **Hot storage minimized**: Only 3 months of data in S3 Standard — everything else in Glacier Deep Archive
+- UX: Simple, big-button interface designed for non-technical use. Albums restore as **ZIP download(s)** — split into reasonable parts, with clear instructions
 - Object count reduction: **~90–99% fewer objects** after bundling, drastically reducing API request costs and metadata overhead
 - Fully automated: EventBridge cron runs the Go Bundler Lambda once per month — zero manual work after initial setup
 - Frontend guard: Users are warned before exceeding the 100 GB monthly free egress threshold
@@ -76,7 +77,8 @@ All sensitive AWS operations are proxied through **Supabase Edge Functions** (fr
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
 │         AWS S3 + IAM (eu-central-1) — Terraform managed     │
-│  • Bucket with Glacier Deep Archive lifecycle               │
+│  • Hot data in Intelligent-Tiering; bundled ZIPs uploaded   │
+│  •   directly to Glacier Deep Archive (no lifecycle rule)    │
 │  • Prefix strategy: photos/hot/  +  photos/archive/YYYY/    │
 │  • Versioning + SSE-KMS encryption                          │
 │  • Public access blocked                                    │
@@ -90,7 +92,7 @@ All sensitive AWS operations are proxied through **Supabase Edge Functions** (fr
 ┌─────────────────────────────────────────────────────────────┐
 │   Go Bundler Lambda (EventBridge Scheduler cron)            │
 │  • Trigger: cron(0 3 1 * ? *) — 1st of each month at 3 AM  │
-│  • Scans photos/hot/ for data older than 24 months          │
+│  • Scans photos/hot/ for data older than 3 months           │
 │  • Groups by YYYY-MM, creates monthly ZIP archives          │
 │  • Auto-splits: if ZIP > MAX_PART_SIZE (10 GB default),     │
 │    splits into name.part1.zip, name.part2.zip, ...          │
@@ -105,14 +107,14 @@ All sensitive AWS operations are proxied through **Supabase Edge Functions** (fr
 1. Wife clicks magic link → instantly logged in via Supabase Auth
 2. App calls Edge Function `list-prefixes` → merges `hot/` folders + `archive/` monthly ZIPs (including multi-part) into a unified album view
 3. Before restoring, frontend guard checks estimated size vs 100 GB monthly free egress → shows warning if approaching limit
-4. She clicks **"Restore Summer 2025 Photos (Free, ~48 hours)"**
+4. She clicks **"Restore March 2026 Photos (Free, ~48 hours)"**
 5. For archive data: Edge Function calls `s3.restoreObject({ Tier: "Bulk" })` on **each part** of the album
 6. App polls `get-download-urls` every 30–60s until all parts show `ongoing-request="false"`
 7. Presigned `GET` URLs are returned for each part — user downloads **one part at a time** or all at once
 8. Multi-part albums show clear instructions: "This album has 3 parts. Download all parts and unzip the first one to extract the full album."
 9. For hot data: individual files can be restored and downloaded selectively
-10. Uploads go through Edge Function → presigned POST to S3 (`photos/hot/` prefix → lifecycle transitions to Glacier)
-11. Go Bundler Lambda runs on a cron schedule, automatically bundling old data into monthly ZIPs and splitting large months — no manual action required
+10. Uploads go through Edge Function → presigned POST to S3 (`photos/hot/` → Intelligent-Tiering, no Glacier transition)
+11. Go Bundler Lambda runs on a cron schedule: reads files older than 3 months from Intelligent-Tiering, creates monthly ZIPs (with splitting for large months), uploads them **directly to Glacier Deep Archive** (`StorageClass: DEEP_ARCHIVE`), verifies checksums, then deletes originals from Intelligent-Tiering — no early deletion fees, no manual action required
 
 ---
 
@@ -127,7 +129,7 @@ All AWS resources are defined in the `infra/` directory using Terraform. This gu
 
 **What Terraform manages**:
 - S3 bucket + versioning + encryption + public access block
-- Lifecycle policy (Standard/Intelligent-Tiering → Glacier Deep Archive)
+- Storage classes: Intelligent-Tiering for `hot/` (no Glacier min duration), direct `DEEP_ARCHIVE` uploads for bundled ZIPs
 - CORS configuration (locked to GitHub Pages origin)
 - IAM user + policy (least privilege — only for Supabase Edge Functions)
 - **Go Bundler Lambda + EventBridge Scheduler rule** (cron trigger)
@@ -187,7 +189,7 @@ GitHub Pages is truly free with zero limits for this use case. We keep the backe
 - [ ] Supabase project with Auth (magic links enabled) + 2 test users
 - [ ] 3–4 Edge Functions deployed and working
 - [ ] React app with magic-link login + session persistence
-- [ ] Browse S3 prefixes presented as nice "Albums" (e.g. `photos/2025/06-summer-trip`)
+- [ ] Browse S3 prefixes presented as nice "Albums" (e.g. `photos/2026/06-summer-trip`)
 - [ ] One-click **Bulk Restore** request for an album/prefix (clearly shows "~48 hours / up to 2 days")
 - [ ] Live status: "Restoring… (est. 12–48 hours)" → "Ready until July 7"
 - [ ] Download — **ZIP file(s) per album**; multi-part albums show numbered parts
@@ -196,7 +198,7 @@ GitHub Pages is truly free with zero limits for this use case. We keep the backe
 - [ ] Basic upload of new photos/documents from browser (lands in `hot/` prefix)
 - [ ] Responsive design that works well on phone
 - [ ] Deployed on GitHub Pages (public repo or private with Pro)
-- [ ] End-to-end test: upload → lifecycle to Glacier → restore via UI → download
+- [ ] End-to-end test: upload → hot storage → bundler archives to Glacier → restore via UI → download
 - [ ] Go Bundler Lambda deployed + EventBridge Scheduler cron rule created via Terraform
 - [ ] `list-prefixes` Edge Function merges both `hot/` and `archive/` into one unified album view
 
@@ -225,7 +227,7 @@ GitHub Pages is truly free with zero limits for this use case. We keep the backe
    - Block all public access
    - Versioning enabled
    - Default encryption (SSE-KMS)
-   - Lifecycle policy (Standard → Glacier Deep Archive after 90 days)
+   - Storage class strategy: Intelligent-Tiering for `hot/`; bundled ZIPs uploaded directly with `StorageClass: DEEP_ARCHIVE`
 8. **CORS** strictly limited to the GitHub Pages origin (+ localhost for development).
 9. **Bundler Lambda runs with limited permissions** — The Go Bundler Lambda has no access to Edge Function secrets, Supabase, or any other AWS service beyond S3 and CloudWatch logs.
 
@@ -239,6 +241,7 @@ With monthly ZIP bundling, the number of objects in Glacier Deep Archive drops b
 |----------------------------------------|---------------------------------|-------|
 | GitHub Pages                           | **$0**                          | Public repo (or $4 if private) |
 | Supabase (Auth + Edge Functions)       | **$0**                          | 2 users, < 10k invocations/mo easily inside free tier |
+| S3 Standard / Intelligent-Tiering (hot/ — ~3 months) | **~$0.001–0.01**  | Minimal — only last 3 months live here |
 | S3 Storage (Glacier Deep Archive)      | **~$0.00099/GB**                | e.g. 1 TB = ~$0.99/mo |
 | Bulk Retrieval (100 GB)                | **~$0.25**                      | $0.0025/GB for Deep Archive Bulk |
 | Temporary restored objects (7 days)    | ~$0.023/GB × 100 GB × 7/30      | ~$0.50–0.80 |
@@ -261,7 +264,12 @@ With monthly ZIP bundling, the number of objects in Glacier Deep Archive drops b
 
 **Splitting overhead**: A 50 GB month split into 5 parts = 5 `RestoreObjectCommand` calls instead of 1. At $0.0025/GB for Bulk, the cost difference is ~$0.0003 — effectively zero.
 
-This is the lowest possible cost on AWS for long-term archival. The only trade-off is restore time (Bulk = typically 12–48 hours).
+**3-month vs 24-month comparison**:
+- Hot storage (S3 Standard/Intelligent-Tiering): ~96% reduction in hot data volume (only 3 months instead of 24)
+- Restore frequency: **Higher** — even 4-month-old photos require a Bulk restore (~12–48h wait)
+- Total cost savings: **~$1–3/year more saved** on hot storage vs the 24-month plan
+
+This is the lowest possible cost on AWS for long-term archival. The main trade-off is that data older than 3 months requires a Bulk restore (12–48 hours) before download.
 
 ---
 
@@ -270,20 +278,19 @@ This is the lowest possible cost on AWS for long-term archival. The only trade-o
 - **Region**: `eu-central-1` (Frankfurt) — lowest latency from Hamburg + GDPR friendly
 - **Bucket name**: `family-backup-sebastian-2026` (or similar)
 - **Prefix strategy**:
-  - `photos/hot/` — Recent data (current year + previous year). Files stored individually for easy browsing and selective restore. Default upload target. The Go Bundler Lambda scans this prefix.
-  - `photos/archive/YYYY/` — Bundled monthly ZIPs for data older than ~24 months. Single ZIP or multi-part: `2024-03-March.part1.zip`, `2024-03-March.part2.zip`, etc.
+  - `photos/hot/YYYY/MM/` — Recent data (last 3 months). Files stored individually for easy browsing and selective restore. Default upload target. The Go Bundler Lambda scans this prefix.
+  - `photos/archive/YYYY/` — Bundled monthly ZIPs for data older than 3 months. Single ZIP or multi-part: `2024-03-March.part1.zip`, `2024-03-March.part2.zip`, etc.
   - `photos/_bundled/` — Temporary safety copy of original files after bundling (optional, lifecycle-managed).
   - Rationale: Clear separation makes lifecycle rules, IAM policies, and the bundler Lambda simpler and more secure.
 - **Naming convention for split archives**:
   - Single ZIP: `YYYY-MM-name.zip` (e.g. `2024-03-March.zip`)
   - Multi-part: `YYYY-MM-name.part1.zip`, `YYYY-MM-name.part2.zip`, etc.
   - The Lambda uses a configurable `max_part_size` (default 10 GB) as the threshold.
-- **Lifecycle rule** (Terraform-managed):
-  - Objects in `photos/hot/` → S3 Intelligent-Tiering (Frequent Access) immediately
-  - After 90 days → Transition to **Glacier Deep Archive** (cheapest class)
-  - Objects in `photos/archive/` → Transition directly to Glacier Deep Archive on upload (already bundled)
+- **Storage class strategy** (Terraform-managed) — **Option B: no lifecycle transition to Glacier**:
+  - Objects in `photos/hot/` → S3 Intelligent-Tiering (Frequent Access). **No lifecycle rule transitions data from `hot/` to Glacier.** This avoids the 180-day minimum duration penalty entirely, since Intelligent-Tiering has no minimum storage period.
+  - Objects in `photos/archive/` → Uploaded **directly** with `StorageClass: "DEEP_ARCHIVE"` by the Go Bundler Lambda. No lifecycle transition needed — the objects land instantly in Glacier Deep Archive.
   - Objects in `photos/_bundled/` → Expire after 30 days (safety net, then auto-cleanup)
-  - Or use Intelligent-Tiering with **Deep Archive Access** tier enabled (recommended "set & forget" option)
+- **How Glacier Deep Archive is populated**: The Go Bundler Lambda reads original files from Intelligent-Tiering (`hot/`), creates monthly ZIP archives, and uploads them with `StorageClass: "DEEP_ARCHIVE"` to `photos/archive/YYYY/`. After checksum verification, the original files are **deleted from Intelligent-Tiering** (which has no minimum duration — zero early deletion fee). The bundled ZIPs then reside in Glacier Deep Archive for the long term, where the 180-day minimum is expected since they are archival by design.
 - **Versioning**: Enabled (protects against accidental deletes)
 - **Encryption**: SSE-KMS (AWS managed key is fine)
 - **Public access**: Blocked
@@ -296,7 +303,7 @@ This is the lowest possible cost on AWS for long-term archival. The only trade-o
 All functions live in `supabase/functions/` and are called via `supabase.functions.invoke()`.
 
 ### `list-prefixes`
-- Lists common prefixes under both `photos/hot/` and `photos/archive/YYYY/`
+- Lists common prefixes under both `photos/hot/YYYY/MM/` and `photos/archive/YYYY/`
 - Returns a merged view of albums with metadata:
   - For hot data: folder name, file count, total size, type: `"hot"`
   - For archive data: album name, total size (sum of all parts), type: `"archive"`, `parts: [{ fileName, size, partNumber }]`
@@ -304,20 +311,22 @@ All functions live in `supabase/functions/` and are called via `supabase.functio
 - Detects multi-part albums by grouping `.partN.zip` files under a common base name
 
 ```typescript
-// Merged response with multi-part support
+// Merged response — in June 2026, only Apr/May/Jun are hot
 [
-  { id: "hot/2026",       name: "2026",          type: "hot",     fileCount: 342,  totalSize: "1.2 GB" },
-  { id: "archive/2024",   name: "March 2024",    type: "archive", totalSize: "28.5 GB", parts: [
-    { fileName: "2024-03-March.part1.zip", size: "10 GB", partNumber: 1 },
-    { fileName: "2024-03-March.part2.zip", size: "10 GB", partNumber: 2 },
-    { fileName: "2024-03-March.part3.zip", size: "8.5 GB", partNumber: 3 },
+  { id: "hot/2026/06",    name: "June 2026",     type: "hot",     fileCount: 142,  totalSize: "0.8 GB" },
+  { id: "hot/2026/05",    name: "May 2026",      type: "hot",     fileCount: 98,   totalSize: "0.5 GB" },
+  { id: "hot/2026/04",    name: "April 2026",    type: "hot",     fileCount: 211,  totalSize: "1.1 GB" },
+  { id: "archive/2026/03", name: "March 2026",   type: "archive", totalSize: "28.5 GB", parts: [
+    { fileName: "2026-03-March.part1.zip", size: "10 GB", partNumber: 1 },
+    { fileName: "2026-03-March.part2.zip", size: "10 GB", partNumber: 2 },
+    { fileName: "2026-03-March.part3.zip", size: "8.5 GB", partNumber: 3 },
   ]},
 ]
 ```
 
 ### `request-restore`
 ```ts
-// Input: { albumKey: "photos/archive/2024/2024-03-March" }
+// Input: { albumKey: "photos/archive/2026/2026-03-March" }
 // The Edge Function discovers all parts matching albumKey.part*.zip
 // and issues RestoreObjectCommand for each part
 const parts = await discoverParts(albumKey);
@@ -358,11 +367,12 @@ for (const part of parts) {
 
 | Data Age                | Location              | Format                          | Bundled? |
 |-------------------------|-----------------------|---------------------------------|----------|
-| Current year            | `photos/hot/YYYY/`    | Individual files                | No       |
-| Previous year           | `photos/hot/YYYY/`    | Individual files                | No       |
-| Older than ~24 months   | `photos/archive/YYYY/`| Monthly ZIP(s), possibly split | Yes      |
+| Last 3 months           | `photos/hot/YYYY/MM/` | Individual files                | No       |
+| Older than 3 months     | `photos/archive/YYYY/`| Monthly ZIP(s), possibly split | Yes      |
 
-The bundling window is intentionally conservative. Two full years of hot data gives plenty of time for easy browsing, selective restores, and uploads before files are automatically bundled into monthly archives.
+The bundling window is deliberately short — only 3 months in hot storage. This minimizes hot-tier storage costs and maximizes the cost savings of Glacier Deep Archive. The trade-off is that data from 4–12 months ago requires a Bulk restore (~12–48h wait) if the wife wants to access it. The frontend guard and clear restore-time messaging make this acceptable.
+
+**Key architectural decision (Option B)**: There is **no lifecycle rule** transitioning `hot/` data to Glacier Deep Archive. The `hot/` prefix uses only S3 Intelligent-Tiering, which has **no minimum duration**. When the Go Bundler Lambda runs, it reads files from Intelligent-Tiering, creates ZIP archives, and uploads them **directly to Glacier Deep Archive** with `StorageClass: "DEEP_ARCHIVE"`. The original files are then deleted from Intelligent-Tiering. This avoids the 180-day early deletion fee entirely — since the original files are never transitioned to Glacier, they have no minimum duration penalty. The only objects that ever enter Glacier Deep Archive are the bundled ZIPs, which are intended for long-term archival and will naturally stay well beyond 180 days.
 
 ### How the Go Bundler Lambda + EventBridge Cron Works
 
@@ -371,7 +381,7 @@ The bundling window is intentionally conservative. Two full years of hot data gi
 **Go Bundler Lambda logic** (`lambda/go-bundler/main.go`):
 
 1. **List** all objects under `photos/hot/` with a delimiter of `/` to discover year/month folders
-2. **Filter** folders whose name is older than 24 months (e.g. in July 2026, folders from 2024 and earlier are eligible)
+2. **Filter** folders whose name is older than 3 months (e.g. in July 2026, files from March 2026 and earlier are eligible)
 3. **Group** the eligible files by `YYYY-MM` prefix (files may already be in subfolders)
 4. **For each group, stream files into ZIP archive(s)**:
    - Uses Go's `archive/zip` — streaming writes, no local disk buffering for large files
@@ -381,7 +391,7 @@ The bundling window is intentionally conservative. Two full years of hot data gi
      - Each part is filled up to MAX_PART_SIZE before starting the next
      - Files are NOT split across parts — each file goes entirely into one part
      - Naming: `{base}.part{number}.zip` starting from 1
-5. **Upload** part(s) to `photos/archive/YYYY/`
+5. **Upload** part(s) to `photos/archive/YYYY/` with `StorageClass: "DEEP_ARCHIVE"` — objects land directly in Glacier Deep Archive, no lifecycle transition needed
 6. **Verify** — Compare the uploaded ZIP's S3 ETag against the local checksum for each part
 7. **On success**: Delete the original individual files from `hot/` (creates Delete Markers)
 8. **On failure**: Log error to CloudWatch, do NOT delete originals. Next month's run will retry.
@@ -448,13 +458,15 @@ function useRestoreSizeGuard(albumTotalSizeBytes: number) {
 The `list-prefixes` Edge Function returns metadata that the UI renders differently based on type and part count:
 
 ```typescript
-// Merged response with multi-part support
+// Merged response — in June 2026, only Apr/May/Jun are hot
 [
-  { id: "hot/2026",       name: "2026",          type: "hot",     fileCount: 342,  totalSize: "1.2 GB" },
-  { id: "archive/2024",   name: "March 2024",    type: "archive", totalSize: "28.5 GB", parts: [
-    { fileName: "2024-03-March.part1.zip", size: "10 GB", partNumber: 1 },
-    { fileName: "2024-03-March.part2.zip", size: "10 GB", partNumber: 2 },
-    { fileName: "2024-03-March.part3.zip", size: "8.5 GB", partNumber: 3 },
+  { id: "hot/2026/06",    name: "June 2026",     type: "hot",     fileCount: 142,  totalSize: "0.8 GB" },
+  { id: "hot/2026/05",    name: "May 2026",      type: "hot",     fileCount: 98,   totalSize: "0.5 GB" },
+  { id: "hot/2026/04",    name: "April 2026",    type: "hot",     fileCount: 211,  totalSize: "1.1 GB" },
+  { id: "archive/2026/03", name: "March 2026",   type: "archive", totalSize: "28.5 GB", parts: [
+    { fileName: "2026-03-March.part1.zip", size: "10 GB", partNumber: 1 },
+    { fileName: "2026-03-March.part2.zip", size: "10 GB", partNumber: 2 },
+    { fileName: "2026-03-March.part3.zip", size: "8.5 GB", partNumber: 3 },
   ]},
 ]
 ```
@@ -469,7 +481,7 @@ The `list-prefixes` Edge Function returns metadata that the UI renders different
 **Multi-part album detail view**:
 ```
 ┌─────────────────────────────────────────────┐
-│  📦 March 2024                   28.5 GB     │
+│  📦 March 2026                   28.5 GB     │
 │  ─────────────────────────────────────────── │
 │  ⚠️ This album has 3 parts. You need to      │
 │  download all parts to unzip the full album. │
@@ -490,7 +502,7 @@ The `list-prefixes` Edge Function returns metadata that the UI renders different
 - **Restore**: Issues one `RestoreObjectCommand` per part. The UI polls ALL parts and shows overall progress (e.g. "Restoring… 2 of 3 parts ready").
 - **Notification email**: Refers to the album name, mentions part count if > 1.
   ```
-  Good news! Your "March 2024 Photos" (3 parts) are ready to download.
+  Good news! Your "March 2026 Photos" (3 parts) are ready to download.
   Open the app to download each part.
   ```
 - **Download**: One presigned URL per part, plus a "Download all" button that triggers parallel downloads.
@@ -569,11 +581,11 @@ Your March 2024 Photos (3 parts) are ready to download
 ```
 Hi,
 
-Good news! The restore of "March 2024 Photos" has finished.
+Good news! The restore of "March 2026 Photos" has finished.
 
 This album has 3 parts. Open the Family Backup App to download each part:
 
-→ Open App & Download: https://yourusername.github.io/family-backup-app/?restored=photos/archive/2024/2024-03-March
+→ Open App & Download: https://yourusername.github.io/family-backup-app/?restored=photos/archive/2026/2026-03-March
 
 Download all parts and extract the first one — your computer will combine them automatically.
 
@@ -602,10 +614,10 @@ If you have any problems or need help, just reply to this email.
 
 When the user clicks the link in the email and opens the app:
 
-1. The app reads the URL parameter `?restored=photos/archive/2024/2024-03-March`
+1. The app reads the URL parameter `?restored=photos/archive/2026/2026-03-March`
 2. Immediately shows a prominent green success banner at the top of the screen:
    ```
-   ✅ March 2024 Photos are ready! (3 parts)
+   ✅ March 2026 Photos are ready! (3 parts)
    Available to download until July 10, 2026
    ```
 3. Automatically expands/highlights that album in the list and marks it with a "Ready" badge
@@ -684,8 +696,8 @@ You can delete via:
 **3. React UI (All in `.tsx` files)**
    - Delete button next to files/albums with confirmation modal
    - Warning shown for recent files: *"This file is only X days old. Early deletion fee may apply."*
-   - Distinct warning for archive ZIPs: *"This will delete all photos from March 2024 permanently."*
-   - Multi-part warning: *"This will delete all 3 parts of March 2024."*
+   - Distinct warning for archive ZIPs: *"This will delete all photos from March 2026 permanently."*
+   - Multi-part warning: *"This will delete all 3 parts of March 2026."*
    - Advanced option (for you): "Permanently delete this specific version"
    - Success toast + refresh of the album view
 
@@ -793,6 +805,7 @@ family-backup-app/
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|----------|
 | Restore takes longer than expected | Medium | Medium | Show clear "usually 5–12h" messaging + progress estimate |
+| Wife is frustrated that recent photos (4–6 months old) require 12–48h wait | Medium | High | Explain trade-off clearly in onboarding: "Photos older than 3 months are in cold storage and take ~1 day to restore". Offer to keep select albums hot on request. |
 | Wife finds UI confusing | Low | High | Big buttons, clear status language, test with her early; multi-part instructions tested separately |
 | Wife doesn't understand multi-part extraction | Low | High | Clear instruction: "Download all parts, then extract part1.zip"; can add a short video/gif later |
 | Frontend size guard incorrectly estimates | Low | Medium | Use exact size from S3 metadata; add manual override for Sebastian |
@@ -876,13 +889,13 @@ family-backup-app/
 ## 17. Success Criteria for PoC Completion
 
 The PoC is considered successful when:
-- All AWS resources (S3 bucket, IAM, CORS, lifecycle) are created via Terraform in `infra/`
+- All AWS resources (S3 bucket, IAM, CORS, storage classes) are created via Terraform in `infra/`
 - Both users can log in with magic links on phone and laptop
-- Wife can see existing albums (both hot and archive) and request a Bulk restore with one tap
+- Wife can see existing albums (hot = last 3 months, archive = everything older) and request a Bulk restore with one tap
 - She sees clear status and can download files once ready — **single ZIP or multi-part ZIPs with clear instructions**
 - Multi-part albums display part count, individual download buttons, and extraction guidance
 - The frontend size guard shows appropriate warnings before restore based on album size vs 100 GB monthly limit
-- A new photo uploaded via the app appears in `hot/` and can be restored later
+- A new photo uploaded via the app appears in `hot/` and is automatically bundled into archive after 3 months
 - The Go Bundler Lambda is deployed via Terraform and can create monthly ZIPs (with splitting for large months), upload to `archive/`, verify checksums, and safely delete originals
 - The EventBridge Scheduler rule is created via Terraform and triggers the bundler Lambda on schedule
 - The bundler IAM role has least-privilege permissions (read `hot/`, write `archive/`, delete `hot/` only after verification)
