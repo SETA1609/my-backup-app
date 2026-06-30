@@ -1,2 +1,25 @@
 # my-backup-app
-This is a backup solution using an supabase auth backend and an s3 glasier solution. This is a cheaper solution  long term as the google drive monthly cost. This is not a google drive killer as you wont have easy delete download but you should be able to store cold data with a 100 gb download to stay  in the aws free tier
+
+Zero-cost, open-source backup solution using Supabase Auth + Edge Functions and Amazon S3 Glacier Deep Archive.
+
+Browse, restore, and download cold-stored backups from a simple web interface — all infrastructure defined as code.
+
+## Tech Stack
+
+- **Frontend**: React + TypeScript + Tailwind (Vite)
+- **Backend**: Supabase Auth + Edge Functions (Deno/TypeScript)
+- **Storage**: Amazon S3 Glacier Deep Archive
+- **Infrastructure**: Terraform
+- **Notifications**: Go Lambda + Amazon SES
+- **Hosting**: GitHub Pages (free)
+
+## Repo Structure
+
+```
+├── docs/                            # Vision & Mission
+├── infra/                           # Terraform (S3, IAM, lifecycle, CORS)
+├── supabase/functions/              # Edge Functions
+├── lambda/go-notification/          # Go Lambda for restore notifications
+├── src/                             # React SPA
+└── .github/workflows/               # CI/CD
+```
