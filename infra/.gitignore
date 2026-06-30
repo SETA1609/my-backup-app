@@ -1,0 +1,21 @@
+# ── OpenTofu / Terraform ──
+*.tfstate
+*.tfstate.*
+.terraform/
+crash.log
+crash.*.log
+
+# ── Variable files with real secrets ──
+*.tfvars
+!dev.tfvars
+!prod.tfvars
+
+# ── Override files ──
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# ── CLI config ──
+.terraformrc
+terraform.rc
